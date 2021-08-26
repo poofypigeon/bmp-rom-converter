@@ -43,16 +43,11 @@ int little_endian_to_int(const uint8_t *ptr, size_t size) {
     return result;
 }
 
-size_t read_bytes(uint8_t *dest, size_t n, FILE *fp) {
-    memset(dest, '\0', n);
-    return fread(dest, 1, n, fp);
-}
-
 BMP read_monochrome_bmp(FILE* file) {
     BMP bmp;
 
     uint8_t bmp_header_buffer[BMP_HEADER_SIZE];
-    if (read_bytes(bmp_header_buffer, BMP_HEADER_SIZE, file) != BMP_HEADER_SIZE) {
+    if (fread(bmp_header_buffer, 1, BMP_HEADER_SIZE, file) != 0) {
         printf("File could not be read.\n");
         exit(1);
     };
@@ -62,12 +57,12 @@ BMP read_monochrome_bmp(FILE* file) {
         exit(1);
     }
 
-    bmp.bmp_header.size            = little_endian_to_int(&bmp_header_buffer[FILE_SIZE_POS], sizeof(int));
+    bmp.bmp_header.size = little_endian_to_int(&bmp_header_buffer[FILE_SIZE_POS], sizeof(int));
     bmp.bmp_header.px_array_pos = little_endian_to_int(&bmp_header_buffer[PX_OFFSET_POS], sizeof(int));
 
     uint8_t info_header_buffer[INFO_HEADER_SIZE];
 
-    if (read_bytes(info_header_buffer, 4, file) != 4) {
+    if (fread(info_header_buffer, 1, 4, file) != 4) {
         printf("BITMAPINFOHEADER size could not be read.\n");
         exit(1);
     };
@@ -78,7 +73,8 @@ BMP read_monochrome_bmp(FILE* file) {
         exit(1);
     }
 
-    if (read_bytes(&info_header_buffer[4], bmp.dib_header.size - 4, file) != bmp.dib_header.size - 4) {
+    
+    if (fread(&info_header_buffer[4], 1, bmp.dib_header.size - 4, file) != bmp.dib_header.size - 4) {
         printf("BITMAPINFOHEADER could not be read.\n");
         exit(1);
     }
@@ -103,7 +99,8 @@ BMP read_monochrome_bmp(FILE* file) {
         { perror("Unable to locate image data"); }
     
     bmp.px_array = malloc(bmp.dib_header.image_size);
-    if (read_bytes(bmp.px_array, bmp.dib_header.image_size, file) != bmp.dib_header.image_size) {
+    
+    if (fread(bmp.px_array, 1, bmp.dib_header.image_size, file) != bmp.dib_header.image_size) {
         printf("Image data could not be read.\n");
         exit(1);
     };
@@ -150,6 +147,7 @@ BMP monochrome_raw_to_bmp (uint32_t img_width, FILE* raw_file) {
     BMP bmp;
     bmp.bmp_header.px_array_pos = 14 + sizeof(BITMAPINFOHEADER);
     bmp.bmp_header.size = bmp.bmp_header.px_array_pos + (px_array_size);
+
     bmp.dib_header.width = img_width;
     bmp.dib_header.height = img_height;
     bmp.dib_header.planes = 1;
@@ -161,13 +159,17 @@ BMP monochrome_raw_to_bmp (uint32_t img_width, FILE* raw_file) {
     bmp.dib_header.colours_used = 0;
     bmp.dib_header.important_colours = 0;
 
+    bmp.px_array = px_array;
+
     return bmp;
 }
 
 int main() {
     FILE *file = fopen("myfile.dat", "rb");
-    monochrome_raw_to_bmp(7, file);
+    BMP bmp = monochrome_raw_to_bmp(7, file);
     // BMP bmp = load_monochrome_bmp(file);
+
+    free(bmp.px_array);
 
     return 0;
 }
