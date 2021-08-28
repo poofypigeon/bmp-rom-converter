@@ -6,15 +6,12 @@
 #include <machine/endian.h>
 
 #define BMP_HEADER_SIZE 14
-#define INFO_HEADER_SIZE 124
-
-#define FILE_SIZE_POS 0x2
-#define PX_OFFSET_POS 0xA
+#define MAX_DIB_HEADER_SIZE 124
 
 typedef struct {
     uint32_t size;
     uint32_t px_array_pos;
-} BMPHEADER;
+} bmp_header_t;
 
 typedef struct {
     uint32_t size;
@@ -28,11 +25,12 @@ typedef struct {
     uint32_t print_res_y;
     uint32_t colours_used;
     uint32_t important_colours;
-} BITMAPINFOHEADER;
+} dib_header_t;
 
 typedef struct {
-    BMPHEADER bmp_header;
-    BITMAPINFOHEADER dib_header;
+    bmp_header_t
+ bmp_header;
+    dib_header_t dib_header;
     uint8_t *px_array;
 } BMP;
 
@@ -50,25 +48,24 @@ BMP read_monochrome_bmp(FILE* file) {
         exit(1);
     }
     
-    bmp.bmp_header.size = *(uint32_t*) &bmp_header_buffer[FILE_SIZE_POS];
-    bmp.bmp_header.px_array_pos = *(uint32_t*) &bmp_header_buffer[PX_OFFSET_POS];
+    bmp.bmp_header.size         = *(uint32_t*) &bmp_header_buffer[0x2];
+    bmp.bmp_header.px_array_pos = *(uint32_t*) &bmp_header_buffer[0xA];
 
-    uint8_t info_header_buffer[INFO_HEADER_SIZE];
+    uint8_t info_header_buffer[MAX_DIB_HEADER_SIZE];
 
     if (fread(info_header_buffer, 1, 4, file) != 4) {
-        printf("BITMAPINFOHEADER size could not be read.\n");
+        printf("dib_header_t size could not be read.\n");
         exit(1);
     };
     bmp.dib_header.size = *(uint32_t*) info_header_buffer;
 
     if (bmp.dib_header.size != 40) {
-        printf("Only .bmp's with the BITMAPINFOHEADER format are supported.\n");
+        printf("Only .bmp's with the dib_header_t format are supported.\n");
         exit(1);
     }
 
-    
     if (fread(&info_header_buffer[4], 1, bmp.dib_header.size - 4, file) != bmp.dib_header.size - 4) {
-        printf("BITMAPINFOHEADER could not be read.\n");
+        printf("dib_header_t could not be read.\n");
         exit(1);
     }
 
@@ -101,35 +98,37 @@ BMP read_monochrome_bmp(FILE* file) {
     return bmp;
 }
 
-BMP monochrome_raw_to_bmp (uint32_t img_width, FILE* raw_file) {
-    fseek(raw_file, 0L, SEEK_END);
-    uint32_t file_size = ftell(raw_file);
-    rewind(raw_file);
+BMP monochrome_raw_to_bmp (uint32_t img_width, FILE* infile) {
+    // Get the full size of the input file
+    fseek(infile, 0L, SEEK_END);
+    size_t file_size = ftell(infile);
+    rewind(infile);
 
-    uint32_t total_px = file_size * 8;
-    if (total_px % img_width != 0) {
+    // Ensure that the full pixel count is divisable by the specified image width
+    if ((file_size * 8) % img_width != 0) {
         printf("%dpx is not a valid width for this image.\n", img_width);
         exit(1);
     }
 
-    uint32_t img_height = total_px / img_width;
-    size_t row_size = ((img_width + 31) / 32) * 4;
+    uint32_t img_height = (file_size * 8) / img_width;
+    size_t row_size = ((img_width + 31) / 32) * 4; // equation for row width with padding in bytes
 
     size_t px_array_size = img_height * row_size;
 
     uint8_t *px_array = malloc(px_array_size);
     memset(px_array, 0, px_array_size);
 
-    uint8_t curr_byte = getc(raw_file);
+    uint8_t curr_byte = getc(infile);
 
+    // Construct pixel array including padding
     int in_bit = 0;
-    for (int row = 0; row < img_height; row++) {
+    for (int row = img_height - 1; row >= 0 ; row--) {
         int row_byte = 0;
 
         for (int row_bit = 0; row_bit < img_width; row_bit++) {
             if (row_bit > 0 && row_bit % 8 == 0) row_byte++;
             if (in_bit == 8) {
-                curr_byte = getc(raw_file);
+                curr_byte = getc(infile);
                 in_bit = 0;
             }
             px_array[row_byte + row * row_size] |= (curr_byte & (0x80 >> in_bit)) << in_bit >> (row_bit % 8);
@@ -137,19 +136,11 @@ BMP monochrome_raw_to_bmp (uint32_t img_width, FILE* raw_file) {
         }
     }
 
-    uint8_t *temp_row = malloc(row_size);
-    for (int i = 0; i < img_height / 2; i++) {
-        memcpy(temp_row, &px_array[i * row_size], row_size);
-        memcpy(&px_array[i * row_size], &px_array[(img_height - 1) * row_size - (i * row_size)], row_size);
-        memcpy(&px_array[(img_height - 1) * row_size - (i * row_size)], temp_row, row_size);
-    }
-    free(temp_row);
-
     BMP bmp;
-    bmp.bmp_header.px_array_pos = 14 + sizeof(BITMAPINFOHEADER) + 8;
+    bmp.bmp_header.px_array_pos = 14 + sizeof(dib_header_t) + 8;
     bmp.bmp_header.size = bmp.bmp_header.px_array_pos + (px_array_size);
 
-    bmp.dib_header.size =
+    bmp.dib_header.size = 0x28;
     bmp.dib_header.width = img_width;
     bmp.dib_header.height = img_height;
     bmp.dib_header.planes = 1;
@@ -169,16 +160,16 @@ BMP monochrome_raw_to_bmp (uint32_t img_width, FILE* raw_file) {
 void write_bmp(BMP bmp, FILE* outfile) {
     fwrite("BM", 1, 2, outfile);
     fwrite(&bmp.bmp_header.size, 1, sizeof(uint32_t), outfile);
-    fwrite("\0\0\0\0", 1, 4, outfile);
+    fwrite("\0\0\0\0", 1, 4, outfile); // Application Specific
     fwrite(&bmp.bmp_header.px_array_pos, 1, sizeof(uint32_t), outfile);
 
-    fwrite(&bmp.dib_header, 1, sizeof(BITMAPINFOHEADER), outfile);
-    fwrite("\xFF\xFF\xFF\0\0\0\0\0", 1, 8, outfile);
+    fwrite(&bmp.dib_header, 1, sizeof(dib_header_t), outfile);
+    fwrite("\xFF\xFF\xFF\0\0\0\0\0", 1, 8, outfile); // Weird nescessary bit masks
     fwrite(bmp.px_array, 1, bmp.dib_header.image_size, outfile);
 }
 
 int main() {
-    FILE *infile = fopen("font.bin", "rb");
+    FILE *infile = fopen("test.dat", "rb");
     BMP bmp = monochrome_raw_to_bmp(8, infile);
 
     FILE *outfile = fopen("img.bmp", "wb");
