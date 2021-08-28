@@ -3,15 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <machine/endian.h>
+
+#include "endian.h"
 
 #define BMP_HEADER_SIZE 14
-#define MAX_DIB_HEADER_SIZE 124
+#define DIB_HEADER_SIZE 40
 
-typedef struct {
-    uint32_t size;
-    uint32_t px_array_pos;
-} bmp_header_t;
+#define ptr_letoh16(n) letoh16(*(uint16_t*) &n)
+#define ptr_letoh32(n) letoh32(*(uint32_t*) &n)
 
 typedef struct {
     uint32_t size;
@@ -28,14 +27,14 @@ typedef struct {
 } dib_header_t;
 
 typedef struct {
-    bmp_header_t
- bmp_header;
+    uint32_t size;
+    uint32_t px_array_pos;
     dib_header_t dib_header;
     uint8_t *px_array;
-} BMP;
+} bmp_t;
 
-BMP read_monochrome_bmp(FILE* file) {
-    BMP bmp;
+bmp_t read_monochrome_bmp(FILE* file) {
+    bmp_t bmp;
 
     uint8_t bmp_header_buffer[BMP_HEADER_SIZE];
     if (fread(bmp_header_buffer, 1, BMP_HEADER_SIZE, file) != 0) {
@@ -48,44 +47,44 @@ BMP read_monochrome_bmp(FILE* file) {
         exit(1);
     }
     
-    bmp.bmp_header.size         = *(uint32_t*) &bmp_header_buffer[0x2];
-    bmp.bmp_header.px_array_pos = *(uint32_t*) &bmp_header_buffer[0xA];
+    bmp.size         = ptr_letoh32(bmp_header_buffer[0x02]);
+    bmp.px_array_pos = ptr_letoh32(bmp_header_buffer[0x0A]);
 
-    uint8_t info_header_buffer[MAX_DIB_HEADER_SIZE];
+    uint8_t info_header_buffer[DIB_HEADER_SIZE];
 
     if (fread(info_header_buffer, 1, 4, file) != 4) {
         printf("dib_header_t size could not be read.\n");
         exit(1);
     };
-    bmp.dib_header.size = *(uint32_t*) info_header_buffer;
+    bmp.dib_header.size = ptr_letoh32(info_header_buffer[0x00]);
 
     if (bmp.dib_header.size != 40) {
         printf("Only .bmp's with the dib_header_t format are supported.\n");
         exit(1);
     }
 
-    if (fread(&info_header_buffer[4], 1, bmp.dib_header.size - 4, file) != bmp.dib_header.size - 4) {
+    if (fread(&info_header_buffer[0x04], 1, bmp.dib_header.size - 4, file) != bmp.dib_header.size - 0x04) {
         printf("dib_header_t could not be read.\n");
         exit(1);
     }
 
-    bmp.dib_header.width             = *(uint32_t*) &info_header_buffer[0x04];
-    bmp.dib_header.height            = *(uint32_t*) &info_header_buffer[0x08];
-    bmp.dib_header.planes            = *(uint16_t*) &info_header_buffer[0x0C];
-    bmp.dib_header.bit_count         = *(uint16_t*) &info_header_buffer[0x0B];
-    bmp.dib_header.compression       = *(uint32_t*) &info_header_buffer[0x10];
-    bmp.dib_header.image_size        = *(uint32_t*) &info_header_buffer[0x14];
-    bmp.dib_header.print_res_x       = *(uint32_t*) &info_header_buffer[0x18];
-    bmp.dib_header.print_res_y       = *(uint32_t*) &info_header_buffer[0x1C];
-    bmp.dib_header.colours_used      = *(uint32_t*) &info_header_buffer[0x20];
-    bmp.dib_header.important_colours = *(uint32_t*) &info_header_buffer[0x24];
+    bmp.dib_header.width             = ptr_letoh32(info_header_buffer[0x04]);
+    bmp.dib_header.height            = ptr_letoh32(info_header_buffer[0x08]);
+    bmp.dib_header.planes            = ptr_letoh16(info_header_buffer[0x0C]);
+    bmp.dib_header.bit_count         = ptr_letoh16(info_header_buffer[0x0B]);
+    bmp.dib_header.compression       = ptr_letoh32(info_header_buffer[0x10]);
+    bmp.dib_header.image_size        = ptr_letoh32(info_header_buffer[0x14]);
+    bmp.dib_header.print_res_x       = ptr_letoh32(info_header_buffer[0x18]);
+    bmp.dib_header.print_res_y       = ptr_letoh32(info_header_buffer[0x1C]);
+    bmp.dib_header.colours_used      = ptr_letoh32(info_header_buffer[0x20]);
+    bmp.dib_header.important_colours = ptr_letoh32(info_header_buffer[0x24]);
 
     if (bmp.dib_header.bit_count != 1) {
         printf("Only .bmp's with a bitdepth of 1 are supported.\n");
         exit(1);
     }
 
-    if (fseek(file, bmp.bmp_header.px_array_pos, SEEK_SET) != 0)
+    if (fseek(file, bmp.px_array_pos, SEEK_SET) != 0)
         { perror("Unable to locate image data"); }
     
     bmp.px_array = malloc(bmp.dib_header.image_size);
@@ -98,7 +97,7 @@ BMP read_monochrome_bmp(FILE* file) {
     return bmp;
 }
 
-BMP monochrome_raw_to_bmp (uint32_t img_width, FILE* infile) {
+bmp_t monochrome_raw_to_bmp (uint32_t img_width, FILE* infile) {
     // Get the full size of the input file
     fseek(infile, 0L, SEEK_END);
     size_t file_size = ftell(infile);
@@ -121,11 +120,10 @@ BMP monochrome_raw_to_bmp (uint32_t img_width, FILE* infile) {
     uint8_t curr_byte = getc(infile);
 
     // Construct pixel array including padding
-    int in_bit = 0;
+    uint8_t in_bit = 0;
     for (int row = img_height - 1; row >= 0 ; row--) {
-        int row_byte = 0;
-
-        for (int row_bit = 0; row_bit < img_width; row_bit++) {
+        uint32_t row_byte = 0;
+        for (uint32_t row_bit = 0; row_bit < img_width; row_bit++) {
             if (row_bit > 0 && row_bit % 8 == 0) row_byte++;
             if (in_bit == 8) {
                 curr_byte = getc(infile);
@@ -136,47 +134,63 @@ BMP monochrome_raw_to_bmp (uint32_t img_width, FILE* infile) {
         }
     }
 
-    BMP bmp;
-    bmp.bmp_header.px_array_pos = 14 + sizeof(dib_header_t) + 8;
-    bmp.bmp_header.size = bmp.bmp_header.px_array_pos + (px_array_size);
+    bmp_t bmp;
+    bmp.px_array_pos = 14 + sizeof(dib_header_t) + 8;
+    bmp.size = bmp.px_array_pos + (px_array_size);
 
-    bmp.dib_header.size = 0x28;
-    bmp.dib_header.width = img_width;
-    bmp.dib_header.height = img_height;
-    bmp.dib_header.planes = 1;
-    bmp.dib_header.bit_count = 1;
-    bmp.dib_header.compression = 0;
-    bmp.dib_header.image_size = px_array_size;
-    bmp.dib_header.print_res_x = 0x0B13; // 72dpi
-    bmp.dib_header.print_res_y = 0x0B13; // 72dpi
-    bmp.dib_header.colours_used = 0;
-    bmp.dib_header.important_colours = 0;
+    bmp.dib_header.size              = DIB_HEADER_SIZE;
+    bmp.dib_header.width             = img_width;
+    bmp.dib_header.height            = img_height;
+    bmp.dib_header.planes            = 0x01;
+    bmp.dib_header.bit_count         = 0x01;
+    bmp.dib_header.compression       = 0x00;
+    bmp.dib_header.image_size        = px_array_size;
+    bmp.dib_header.print_res_x       = 0x0B13; // 72dpi
+    bmp.dib_header.print_res_y       = 0x0B13; // 72dpi
+    bmp.dib_header.colours_used      = 0x00;
+    bmp.dib_header.important_colours = 0x00;
 
     bmp.px_array = px_array;
 
     return bmp;
 }
 
-void write_bmp(BMP bmp, FILE* outfile) {
-    fwrite("BM", 1, 2, outfile);
-    fwrite(&bmp.bmp_header.size, 1, sizeof(uint32_t), outfile);
-    fwrite("\0\0\0\0", 1, 4, outfile); // Application Specific
-    fwrite(&bmp.bmp_header.px_array_pos, 1, sizeof(uint32_t), outfile);
+dib_header_t le_dib_header(dib_header_t header) {
+    header.size              = htole32(header.size);
+    header.width             = htole32(header.width);
+    header.height            = htole32(header.height);
+    header.planes            = htole16(header.planes);
+    header.bit_count         = htole16(header.bit_count);
+    header.compression       = htole16(header.compression);
+    header.image_size        = htole32(header.image_size);
+    header.print_res_x       = htole32(header.print_res_x);
+    header.print_res_y       = htole32(header.print_res_y);
+    header.colours_used      = htole32(header.colours_used);
+    header.important_colours = htole32(header.important_colours);
+    return header;
+}
 
-    fwrite(&bmp.dib_header, 1, sizeof(dib_header_t), outfile);
+void write_bmp(bmp_t bmp, FILE* outfile) {
+    fwrite("BM", 1, 2, outfile);
+    fwrite(&bmp.size, 1, sizeof(uint32_t), outfile);
+    fwrite("\0\0\0\0", 1, 4, outfile); // Application specific empty bytes
+    fwrite(&bmp.px_array_pos, 1, sizeof(uint32_t), outfile);
+    dib_header_t dib_header_little_endian = le_dib_header(bmp.dib_header);
+    fwrite(&dib_header_little_endian, 1, sizeof(dib_header_t), outfile);
     fwrite("\xFF\xFF\xFF\0\0\0\0\0", 1, 8, outfile); // Weird nescessary bit masks
     fwrite(bmp.px_array, 1, bmp.dib_header.image_size, outfile);
 }
 
 int main() {
-    FILE *infile = fopen("test.dat", "rb");
-    BMP bmp = monochrome_raw_to_bmp(8, infile);
+    FILE *infile = fopen("font.bin", "rb");
+    bmp_t bmp = monochrome_raw_to_bmp(8, infile);
+    fclose(infile);
 
     FILE *outfile = fopen("img.bmp", "wb");
     write_bmp(bmp, outfile);
-    // BMP bmp = load_monochrome_bmp(file);
 
     free(bmp.px_array);
+    fclose(outfile);
 
     return 0;
 }
