@@ -4,37 +4,39 @@
 #include <stdint.h>
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-    #define betoh16(n) reverse_bytes16(n)
-    #define htobe16(n) reverse_bytes16(n)
-    #define betoh32(n) reverse_bytes32(n)
-    #define htobe32(n) reverse_bytes32(n)
-    #define betoh64(n) reverse_bytes64(n)
-    #define htobe64(n) reverse_bytes64(n)
+    #define betoh16(n) reverse_bytes16__(n)
+    #define htobe16(n) reverse_bytes16__(n)
+    #define betoh32(n) reverse_bytes32__(n)
+    #define htobe32(n) reverse_bytes32__(n)
+    #define betoh64(n) reverse_bytes64__(n)
+    #define htobe64(n) reverse_bytes64__(n)
 
-    uint16_t letoh16(uint16_t n) { return n; }
-    uint16_t htole16(uint16_t n) { return n; }
-    uint32_t letoh32(uint32_t n) { return n; }
-    uint32_t htole32(uint32_t n) { return n; }
-    uint32_t letoh64(uint64_t n) { return n; }
-    uint32_t htole64(uint64_t n) { return n; }
+    #define letoh16(n) (n)
+    #define htole16(n) (n)
+    #define letoh32(n) (n)
+    #define htole32(n) (n)
+    #define letoh64(n) (n)
+    #define htole64(n) (n)
 #else
-    #define letoh16(n) reverse_bytes16(n)
-    #define htole16(n) reverse_bytes16(n)
-    #define letoh32(n) reverse_bytes32(n)
-    #define htole32(n) reverse_bytes32(n)
-    #define letoh64(n) reverse_bytes64(n)
-    #define htole64(n) reverse_bytes64(n)
+    #define letoh16(n) reverse_bytes16__(n)
+    #define htole16(n) reverse_bytes16__(n)
+    #define letoh32(n) reverse_bytes32__(n)
+    #define htole32(n) reverse_bytes32__(n)
+    #define letoh64(n) reverse_bytes64__(n)
+    #define htole64(n) reverse_bytes64__(n)
     
-    uint16_t betoh16(uint16_t n) { return n; }
-    uint16_t htobe16(uint16_t n) { return n; }
-    uint32_t betoh32(uint32_t n) { return n; }
-    uint32_t htobe32(uint32_t n) { return n; }
-    uint32_t betoh64(uint64_t n) { return n; }
-    uint32_t htobe64(uint64_t n) { return n; }
+    #define betoh16(n) (n)
+    #define htobe16(n) (n)
+    #define betoh32(n) (n)
+    #define htobe32(n) (n)
+    #define betoh64(n) (n)
+    #define htobe64(n) (n)
 #endif
 
-uint16_t reverse_bytes16(uint16_t n);
-uint32_t reverse_bytes32(uint32_t n);
-uint64_t reverse_bytes64(uint64_t n);
+uint16_t reverse_bytes16__(uint16_t n);
+uint32_t reverse_bytes32__(uint32_t n);
+uint64_t reverse_bytes64__(uint64_t n);
+
+
 
 #endif // ENDIAN_H

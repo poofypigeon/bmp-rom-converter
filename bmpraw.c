@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <argp.h>
 
 #include "endian.h"
 
@@ -182,15 +183,16 @@ void write_bmp(bmp_t bmp, FILE* outfile) {
 }
 
 int main() {
-    FILE *infile = fopen("font.bin", "rb");
-    bmp_t bmp = monochrome_raw_to_bmp(8, infile);
-    fclose(infile);
+    printf("%d\n",htobe32(12345678));
+    // FILE *infile = fopen("font.bin", "rb");
+    // bmp_t bmp = monochrome_raw_to_bmp(8, infile);
+    // fclose(infile);
 
-    FILE *outfile = fopen("img.bmp", "wb");
-    write_bmp(bmp, outfile);
+    // FILE *outfile = fopen("img.bmp", "wb");
+    // write_bmp(bmp, outfile);
 
-    free(bmp.px_array);
-    fclose(outfile);
+    // free(bmp.px_array);
+    // fclose(outfile);
 
     return 0;
 }

@@ -29,6 +29,7 @@
 *.dylib
 
 # Executables
+bmpraw
 *.exe
 *.out
 *.app
