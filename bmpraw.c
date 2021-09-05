@@ -38,7 +38,7 @@ bmp_t read_monochrome_bmp(FILE* file) {
     bmp_t bmp;
 
     uint8_t bmp_header_buffer[BMP_HEADER_SIZE];
-    if (fread(bmp_header_buffer, 1, BMP_HEADER_SIZE, file) != 0) {
+    if (fread(bmp_header_buffer, 1, BMP_HEADER_SIZE, file) != BMP_HEADER_SIZE) {
         printf("File could not be read.\n");
         exit(1);
     };
@@ -72,7 +72,7 @@ bmp_t read_monochrome_bmp(FILE* file) {
     bmp.dib_header.width             = ptr_letoh32(info_header_buffer[0x04]);
     bmp.dib_header.height            = ptr_letoh32(info_header_buffer[0x08]);
     bmp.dib_header.planes            = ptr_letoh16(info_header_buffer[0x0C]);
-    bmp.dib_header.bit_count         = ptr_letoh16(info_header_buffer[0x0B]);
+    bmp.dib_header.bit_count         = ptr_letoh16(info_header_buffer[0x0E]);
     bmp.dib_header.compression       = ptr_letoh32(info_header_buffer[0x10]);
     bmp.dib_header.image_size        = ptr_letoh32(info_header_buffer[0x14]);
     bmp.dib_header.print_res_x       = ptr_letoh32(info_header_buffer[0x18]);
@@ -121,17 +121,17 @@ bmp_t monochrome_raw_to_bmp (uint32_t img_width, FILE* infile) {
     uint8_t curr_byte = getc(infile);
 
     // Construct pixel array including padding
-    uint8_t in_bit = 0;
+    uint8_t raw_bit = 0;
     for (int row = img_height - 1; row >= 0 ; row--) {
-        uint32_t row_byte = 0;
-        for (uint32_t row_bit = 0; row_bit < img_width; row_bit++) {
-            if (row_bit > 0 && row_bit % 8 == 0) row_byte++;
-            if (in_bit == 8) {
+        int row_byte = 0;
+        for (int row_pos = 0; row_pos < img_width; row_pos++) {
+            if (row_pos > 0 && row_pos % 8 == 0) row_byte++;
+            if (raw_bit == 8) {
                 curr_byte = getc(infile);
-                in_bit = 0;
+                raw_bit = 0;
             }
-            px_array[row_byte + row * row_size] |= (curr_byte & (0x80 >> in_bit)) << in_bit >> (row_bit % 8);
-            in_bit++;
+            px_array[row_byte + row * row_size] |= (curr_byte & (0x80 >> raw_bit)) << raw_bit >> (row_pos % 8);
+            raw_bit++;
         }
     }
 
@@ -182,17 +182,53 @@ void write_bmp(bmp_t bmp, FILE* outfile) {
     fwrite(bmp.px_array, 1, bmp.dib_header.image_size, outfile);
 }
 
+size_t bmp_to_monochrome_raw (uint8_t **dest, bmp_t bmp) {
+    int total_bits = (bmp.dib_header.height * bmp.dib_header.width);
+    size_t size = (total_bits % 8 == 0) ? total_bits / 8 : total_bits / 8 + 1;
+
+    *dest = malloc(size);
+
+    uint32_t dest_byte = 0;  // index of dest_byte pos
+    uint8_t dest_bit  = 0;   // current bit offset of next byte
+
+    int row_size = bmp.dib_header.image_size / bmp.dib_header.height;
+
+    for (int row = bmp.dib_header.height - 1; row >= 0; row--) {
+        int row_byte = 0;
+        for (int row_pos = 0; row_pos < bmp.dib_header.width; row_pos++) {
+            if (row_pos > 0 && row_pos % 8 == 0) row_byte++;
+            int bmp_bit = row_pos % 8;
+            (*dest)[dest_byte] |= (bmp.px_array[row_byte + row * row_size] & (0x80 >> bmp_bit)) << bmp_bit >> dest_bit;
+            dest_bit++;
+            if (row_pos == 0) {
+                printf("%d\n", dest_byte);
+            }
+            if (dest_bit == 8) {
+                dest_byte++;
+                dest_bit = 0;
+            }
+        }
+    }
+
+    printf("%d\n", dest_byte);
+
+    return size;
+}
+
 int main() {
-    printf("%d\n",htobe32(12345678));
-    // FILE *infile = fopen("font.bin", "rb");
-    // bmp_t bmp = monochrome_raw_to_bmp(8, infile);
-    // fclose(infile);
+    FILE *infile = fopen("img.bmp", "rb");
+    bmp_t bmp = read_monochrome_bmp(infile);
+    fclose(infile);
 
-    // FILE *outfile = fopen("img.bmp", "wb");
+    FILE *outfile = fopen("out.dat", "wb");
     // write_bmp(bmp, outfile);
-
-    // free(bmp.px_array);
-    // fclose(outfile);
+    uint8_t *data;
+    size_t outfile_size = bmp_to_monochrome_raw(&data, bmp);
+    fwrite(data, 1, outfile_size, outfile);
+    
+    free(data);
+    free(bmp.px_array);
+    fclose(outfile);
 
     return 0;
 }
