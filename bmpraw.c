@@ -4,8 +4,10 @@
 #include <string.h>
 #include <errno.h>
 #include <argp.h>
+#include <stdbool.h>
 
 #include "endian.h"
+#include "bmp.h"
 
 #define BMP_HEADER_SIZE 14
 #define DIB_HEADER_SIZE 40
@@ -13,26 +15,47 @@
 #define ptr_letoh16(n) letoh16(*(uint16_t*) &n)
 #define ptr_letoh32(n) letoh32(*(uint32_t*) &n)
 
-typedef struct {
-    uint32_t size;
-    uint32_t width;
-    uint32_t height;
-    uint16_t planes;
-    uint16_t bit_count;
-    uint32_t compression;
-    uint32_t image_size;
-    uint32_t print_res_x;
-    uint32_t print_res_y;
-    uint32_t colours_used;
-    uint32_t important_colours;
-} dib_header_t;
+struct argp_option options[4] = { 
+    { "revert", 'r', 0, OPTION_ARG_OPTIONAL, "Convert a raw bit array back to a monochrome .bmp file", 0 }, 
+    { "width", 'w', "FILE", OPTION_ARG_OPTIONAL, "The width in pixels of the image to create from the bit array. Default is 8px", 0 }, 
+    { "output", 'o', "FILE", OPTION_ARG_OPTIONAL, "Output to FILE", 0 }, 
+    { 0 }
+};
 
-typedef struct {
-    uint32_t size;
-    uint32_t px_array_pos;
-    dib_header_t dib_header;
-    uint8_t *px_array;
-} bmp_t;
+struct arguments {
+    bool to_bmp;
+    uint32_t image_width;
+    char* input_file;
+    char* output_file;
+};
+
+error_t parse_opt (int key, char *arg, struct argp_state *state) { 
+    struct arguments *arguments = state->input;
+    switch (key) {
+        case 'r':
+            arguments->to_bmp = true;
+            break;
+        case 'o':
+            arguments->output_file = arg;
+            break;
+        case 'w':
+            if (sscanf(arg, "%d", &arguments->image_width) != 1)
+                argp_usage(state);
+            break;
+        case ARGP_KEY_ARG:
+            arguments->input_file = arg;
+            state->arg_num++;
+        case ARGP_KEY_END:
+            if (state->arg_num > 1)
+                argp_usage (state);
+            break;
+        default:
+            return ARGP_ERR_UNKNOWN;
+    }
+    return 0;
+}
+
+struct argp argp = {options, parse_opt, "ARG", "Convert the pixel data of a monochrome .bmp image to a raw bit array."};
 
 bmp_t read_monochrome_bmp(FILE* file) {
     bmp_t bmp;
@@ -209,9 +232,6 @@ size_t bmp_to_monochrome_raw (uint8_t **dest, bmp_t bmp) {
             // retreive bit at bmp_bit location from the bmp pixel array, then shift it to dest_bit location
             (*dest)[dest_byte] |= (bmp.px_array[row_byte + row * row_size] & (0x80 >> bmp_bit)) << bmp_bit >> dest_bit;
             dest_bit++;
-            if (row_pos == 0) {
-                printf("%d\n", dest_byte);
-            }
             if (dest_bit == 8) {
                 dest_byte++;
                 dest_bit = 0;
@@ -224,20 +244,53 @@ size_t bmp_to_monochrome_raw (uint8_t **dest, bmp_t bmp) {
     return size;
 }
 
-int main() {
-    FILE *infile = fopen("img.bmp", "rb");
-    bmp_t bmp = read_monochrome_bmp(infile);
-    fclose(infile);
+int main(int argc, char** argv) {
+    struct arguments args = { false, 8, NULL, NULL };
 
-    FILE *outfile = fopen("out.dat", "wb");
-    // write_bmp(bmp, outfile);
-    uint8_t *data;
-    size_t outfile_size = bmp_to_monochrome_raw(&data, bmp);
-    fwrite(data, 1, outfile_size, outfile);
+    argp_parse(&argp, argc, argv, 0, 0, &args);
+
+    FILE *infile;
+    if ((infile = fopen(args.input_file, "rb")) == NULL) {
+        printf("No file or directory called '%s'.\n", args.input_file);
+        exit(1);
+    }
+
+    if (args.to_bmp) {
+        bmp_t bmp = monochrome_raw_to_bmp(args.image_width, infile);
+        fclose(infile);
+        
+        char* out_name = (args.output_file != NULL) ? args.output_file : "out.bmp";
+        FILE *outfile = fopen(out_name, "wb");
+        
+        int success;
+        if ((success = write_bmp(bmp, outfile)) != 0) {
+            puts("Failed to write file.");
+            exit(1);
+        }
+        
+        fclose(outfile);
+        free(bmp.px_array);
+    } 
     
-    free(data);
-    free(bmp.px_array);
-    fclose(outfile);
+    else {
+        bmp_t bmp = read_monochrome_bmp(infile);
+        fclose(infile);
+
+        char *out_name = (args.output_file != NULL) ? args.output_file : "out.dat";
+        FILE *outfile = fopen(out_name, "wb");
+
+        uint8_t* data;
+        size_t size = bmp_to_monochrome_raw(&data, bmp);
+
+        if (fwrite(data, 1, size, outfile) != size) {
+            puts("Failed to write file.");
+            exit(1);
+        }
+
+        fclose(outfile);
+        free(data);
+        free(bmp.px_array);
+    }
 
     return 0;
 }
