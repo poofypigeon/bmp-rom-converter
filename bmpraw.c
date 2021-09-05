@@ -171,15 +171,23 @@ dib_header_t le_dib_header(dib_header_t header) {
     return header;
 }
 
-void write_bmp(bmp_t bmp, FILE* outfile) {
-    fwrite("BM", 1, 2, outfile);
-    fwrite(&bmp.size, 1, sizeof(uint32_t), outfile);
-    fwrite("\0\0\0\0", 1, 4, outfile); // Application specific empty bytes
-    fwrite(&bmp.px_array_pos, 1, sizeof(uint32_t), outfile);
+int write_bmp(bmp_t bmp, FILE* outfile) {
+    if (fwrite("BM", 1, 2, outfile) != 2) 
+        { return 1; }
+    if (fwrite(&bmp.size, 1, sizeof(uint32_t), outfile) != sizeof(uint32_t)) 
+        { return 1; }
+    if (fwrite("\0\0\0\0", 1, 4, outfile) != 4) // Application specific empty bytes
+        { return 1; }
+    if (fwrite(&bmp.px_array_pos, 1, sizeof(uint32_t), outfile) != sizeof(uint32_t))
+        { return 1; }
     dib_header_t dib_header_little_endian = le_dib_header(bmp.dib_header);
-    fwrite(&dib_header_little_endian, 1, sizeof(dib_header_t), outfile);
-    fwrite("\xFF\xFF\xFF\0\0\0\0\0", 1, 8, outfile); // Weird nescessary bit masks
-    fwrite(bmp.px_array, 1, bmp.dib_header.image_size, outfile);
+    if (fwrite(&dib_header_little_endian, 1, sizeof(dib_header_t), outfile) != sizeof(dib_header_t))
+        { return 1; }
+    if (fwrite("\xFF\xFF\xFF\0\0\0\0\0", 1, 8, outfile) != 8) // Weird nescessary bit masks
+        { return 1; }
+    if (fwrite(bmp.px_array, 1, bmp.dib_header.image_size, outfile) != bmp.dib_header.image_size)
+        { return 1; }
+    return 0;
 }
 
 size_t bmp_to_monochrome_raw (uint8_t **dest, bmp_t bmp) {
@@ -198,6 +206,7 @@ size_t bmp_to_monochrome_raw (uint8_t **dest, bmp_t bmp) {
         for (int row_pos = 0; row_pos < bmp.dib_header.width; row_pos++) {
             if (row_pos > 0 && row_pos % 8 == 0) row_byte++;
             int bmp_bit = row_pos % 8;
+            // retreive bit at bmp_bit location from the bmp pixel array, then shift it to dest_bit location
             (*dest)[dest_byte] |= (bmp.px_array[row_byte + row * row_size] & (0x80 >> bmp_bit)) << bmp_bit >> dest_bit;
             dest_bit++;
             if (row_pos == 0) {
